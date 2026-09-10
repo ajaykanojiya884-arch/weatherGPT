@@ -25,18 +25,39 @@ function fallback({location, current, daily, activity}) {
   return {title:"AI Weather Analysis",summary:text,recommendation,score,verdict,notes};
 }
 
+function buildSuggestions({locationData={}, current={}, daily={}, message="", location=""}) {
+  const lower = `${message} ${location}`.toLowerCase();
+  const rain = Number(daily?.precipitation_probability_max?.[0] ?? 0);
+  const hot = Number(current?.temperature_2m ?? 0) >= 32;
+  const storm = [95, 96, 99].includes(Number(current?.weather_code));
+  const region = locationData.locationType === "state/region" || locationData.locationType === "region";
+  const suggestions = [];
+  if (storm || rain >= 60) suggestions.push({label:"Will it rain today?",query:"Will it rain today and when is the driest window?"});
+  if (hot || region) suggestions.push({label:region?"Which areas may get rain?":"Should I go outside?",query:region?"Which areas of this region may get rain?":"Should I go outside in these conditions?"});
+  if (lower.includes("travel") || lower.includes("trip") || lower.includes("destination")) {
+    suggestions.push({label:"Check destination alerts",query:"Check the important weather and travel alerts for this destination."});
+    suggestions.push({label:"Best departure time",query:"What is the best departure time based on the forecast?"});
+  }
+  suggestions.push({label:"What about tomorrow?",query:"What will the weather be like tomorrow?"});
+  suggestions.push({label:"Show 7-day forecast",query:"Summarize the next 7 days of forecast conditions."});
+  suggestions.push({label:region?"Best outdoor time":"What's the best time?",query:"What is the best time for outdoor activity?"});
+  return [...new Map(suggestions.map(item=>[item.query,item])).values()].slice(0,5);
+}
+
 export async function POST(req){
   const body=await req.json();
-  const {location,current,daily,activity="general"}=body;
+  const {location,current,daily,activity="general",message="",locationData={}}=body;
+  if(!location||!current||!daily)return NextResponse.json({error:"Location and weather data are required."},{status:400});
+  const suggestions=buildSuggestions(body);
   if(process.env.AI_GATEWAY_API_KEY){
     try{
-      const prompt=`You are WeatherGPT AI. Analyze ONLY the supplied weather data. Never invent weather or alerts. Give a professional concise report for ${location}. Activity: ${activity}. Include current conditions, future outlook, risk, best time if hourly data exists, practical suggestions, and clearly state that recommendations are based on the latest available forecast. Data: ${JSON.stringify({current,daily})}`;
+      const prompt=`You are WeatherGPT AI. Analyze ONLY the supplied weather data. Never invent weather or alerts. Give a professional concise report for ${location}. Activity: ${activity}. User follow-up: ${message||"Give the initial location analysis."} Include current conditions, future outlook, risk, best time if hourly data exists, practical suggestions, and clearly state that recommendations are based on the latest available forecast. Data: ${JSON.stringify({current,daily})}`;
       const r=await fetch("https://ai-gateway.vercel.sh/v1/chat/completions",{
         method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${process.env.AI_GATEWAY_API_KEY}`},
         body:JSON.stringify({model:process.env.AI_MODEL||"openai/gpt-4o-mini",messages:[{role:"system",content:"You are a careful weather analyst. Never fabricate data."},{role:"user",content:prompt}],temperature:0.2})
       });
-      if(r.ok){const d=await r.json();return NextResponse.json({text:d.choices?.[0]?.message?.content||""});}
+      if(r.ok){const d=await r.json();return NextResponse.json({text:d.choices?.[0]?.message?.content||"",suggestions});}
     }catch{}
   }
-  return NextResponse.json(fallback(body));
+  return NextResponse.json({...fallback(body),suggestions});
 }
