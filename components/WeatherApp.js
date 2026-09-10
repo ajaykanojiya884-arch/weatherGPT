@@ -1,4 +1,4 @@
-'use client';
+"use client";
 import {useEffect,useMemo,useState} from "react";
 import {Search, MapPin, Moon, Sun, Bell, History, Star, Navigation, Wind, Droplets, Eye, Gauge, Umbrella, Plane, ShieldAlert, Sparkles, Trash2} from "lucide-react";
 
