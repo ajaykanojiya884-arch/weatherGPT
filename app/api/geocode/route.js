@@ -14,7 +14,7 @@ const INDIA_REGION_ALIASES = {
   lakshadweep: "Lakshadweep, India", madhya: "Madhya Pradesh, India", maharashtra: "Maharashtra, India",
   manipur: "Manipur, India", meghalaya: "Meghalaya, India", mizoram: "Mizoram, India", nagaland: "Nagaland, India",
   odisha: "Odisha, India", orissa: "Odisha, India", puducherry: "Puducherry, India", punjab: "Punjab, India",
-  raj: "Rajasthan, India", rajas: "Rajasthan, India", rajasthan: "Rajasthan, India", sikkim: "Sikkim, India",
+  ra: "Rajasthan, India", raj: "Rajasthan, India", rajas: "Rajasthan, India", rajasthan: "Rajasthan, India", sikkim: "Sikkim, India",
   tamil: "Tamil Nadu, India", telangana: "Telangana, India", tripura: "Tripura, India", uttar: "Uttar Pradesh, India",
   uttarakhand: "Uttarakhand, India", west: "West Bengal, India", bengal: "West Bengal, India",
   mum: "Mumbai, Maharashtra, India", new: "New Delhi, India", "north asia": "Asia",
@@ -39,7 +39,7 @@ function toLocation(result) {
   const isCity = type === "city" || type === "city/town";
   return {
     id: `${result.id}-${result.latitude}-${result.longitude}`,
-    name: result.name, locationName: result.name, city: isCity ? result.name : result.admin2 || null,
+    name: result.name, locationName: result.name, displayName: [result.name, result.admin1, result.country].filter(Boolean).join(", "), city: isCity ? result.name : result.admin2 || null,
     state: result.admin1 || null, country: result.country || null, countryCode: result.country_code || null,
     latitude: result.latitude, longitude: result.longitude, timezone: result.timezone || "auto",
     locationType: type, featureType: type, population: result.population || 0,
@@ -100,6 +100,13 @@ async function fetchRegionalResults(query) {
   return (await response.json()).filter((result) => ["administrative", "continent", "boundary"].includes(result.type));
 }
 
+async function fetchGlobalResults(query) {
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=en&q=${encodeURIComponent(query)}`;
+  const response = await fetch(url, { headers: { "User-Agent": "WeatherGPT-AI/1.0" }, next: { revalidate: 3600 } });
+  if (!response.ok) throw new Error("Global geocoding failed");
+  return (await response.json()).filter((result) => ["city", "town", "village", "administrative", "continent", "boundary"].includes(result.type));
+}
+
 export async function GET(req) {
   const rawQuery = new URL(req.url).searchParams.get("q") || ""; const query = normalize(rawQuery);
   if (query.length < 2) return NextResponse.json({ results: [] });
@@ -117,6 +124,13 @@ export async function GET(req) {
         const location = toNominatimLocation(result);
         const exactRegion = normalize(location.name) === normalize(aliasQuery.split(",")[0]);
         unique.set(location.id, { ...location, _score: (exactRegion ? 1900 : 1200) + (location.countryCode === INDIA ? 200 : 0) + preferredScore(location, query) });
+      });
+    }
+    if (!unique.size || query.includes("asia") || query.includes("europe") || query.includes("africa") || query.includes("america")) {
+      const global = await fetchGlobalResults(rawQuery.trim());
+      global.forEach((result) => {
+        const location = toNominatimLocation(result);
+        unique.set(location.id, { ...location, _score: 700 + preferredScore(location, query) });
       });
     }
     const results = [...unique.values()].sort((a, b) => b._score - a._score).slice(0, 8)

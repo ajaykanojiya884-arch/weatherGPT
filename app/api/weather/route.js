@@ -36,10 +36,14 @@ export async function GET(req) {
   const lat = searchParams.get("lat");
   const lon = searchParams.get("lon");
   const timezone = searchParams.get("timezone") || "auto";
-  if (!lat || !lon) return NextResponse.json({error:"Latitude and longitude are required."},{status:400});
+  const latitude = Number(lat);
+  const longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return NextResponse.json({error:"Valid latitude and longitude are required."},{status:400});
+  }
 
   const params = new URLSearchParams({
-    latitude: lat, longitude: lon, timezone,
+    latitude, longitude, timezone,
     forecast_days: "16",
     current: [
       "temperature_2m","relative_humidity_2m","apparent_temperature","is_day",
